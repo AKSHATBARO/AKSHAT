@@ -1,0 +1,128 @@
+import matplotlib.pyplot as plt
+import streamlit as st
+import yfinance as yf
+
+
+PERIODS = {
+    "1 Month": "1mo",
+    "3 Months": "3mo",
+    "6 Months": "6mo",
+    "1 Year": "1y",
+    "2 Years": "2y",
+    "5 Years": "5y",
+    "Maximum": "max",
+}
+
+
+st.set_page_config(
+    page_title="Yahoo Finance Stock Chart",
+    page_icon="📈",
+    layout="wide",
+)
+
+st.title("📈 Yahoo Finance Stock Line Chart")
+st.write(
+    "Enter a Yahoo Finance ticker and select a period to fetch historical "
+    "market data and display a line chart."
+)
+
+with st.sidebar:
+    st.header("Chart Settings")
+
+    ticker = st.text_input(
+        "Ticker Symbol",
+        value="RELIANCE.NS",
+        help="Examples: RELIANCE.NS, TCS.NS, INFY.NS, AAPL, MSFT",
+    ).strip().upper()
+
+    period_label = st.selectbox(
+        "Select Period",
+        options=list(PERIODS.keys()),
+        index=2,
+    )
+
+    fetch_button = st.button(
+        "Fetch Data",
+        type="primary",
+        use_container_width=True,
+    )
+
+
+def fetch_stock_data(symbol: str, period: str):
+    return yf.download(
+        symbol,
+        period=period,
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+    )
+
+
+def get_close_series(data, symbol: str):
+    close = data["Close"]
+
+    # Handles newer yfinance versions that may return MultiIndex columns
+    if hasattr(close, "columns"):
+        if symbol in close.columns:
+            close = close[symbol]
+        else:
+            close = close.iloc[:, 0]
+
+    return close.dropna()
+
+
+if fetch_button:
+    if not ticker:
+        st.warning("Please enter a ticker symbol.")
+    else:
+        period = PERIODS[period_label]
+
+        with st.spinner(f"Fetching {period_label.lower()} of data for {ticker}..."):
+            try:
+                data = fetch_stock_data(ticker, period)
+
+                if data.empty:
+                    st.error(
+                        "No data was returned. Check the ticker symbol and try again."
+                    )
+                else:
+                    close = get_close_series(data, ticker)
+
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Latest Price", f"{close.iloc[-1]:,.2f}")
+                    col2.metric("Period High", f"{close.max():,.2f}")
+                    col3.metric("Period Low", f"{close.min():,.2f}")
+
+                    st.subheader(f"{ticker} — {period_label}")
+
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    ax.plot(close.index, close.values, linewidth=1.8)
+                    ax.set_title(f"{ticker} Price Chart — {period_label}")
+                    ax.set_xlabel("Date")
+                    ax.set_ylabel("Adjusted Close Price")
+                    ax.grid(True, alpha=0.3)
+                    fig.autofmt_xdate()
+                    fig.tight_layout()
+
+                    st.pyplot(fig)
+                    plt.close(fig)
+
+                    with st.expander("View Historical Data"):
+                        st.dataframe(
+                            data.sort_index(ascending=False),
+                            use_container_width=True,
+                        )
+
+                    csv = data.to_csv().encode("utf-8")
+                    st.download_button(
+                        label="Download Data as CSV",
+                        data=csv,
+                        file_name=f"{ticker}_{period}_data.csv",
+                        mime="text/csv",
+                    )
+
+            except Exception as exc:
+                st.error(f"Unable to fetch data: {exc}")
+
+else:
+    st.info("Choose a ticker and period in the sidebar, then click **Fetch Data**.")
